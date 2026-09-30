@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>文字数カウンター</title>
+<style>
+:root{--bg:#f4f5f2;--card:#fff;--fg:#1b1d1c;--mute:#666b68;--line:#dfe2de;--acc:#2f6f5e;--accfg:#fff;--danger:#b3402f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141615;--card:#1d201f;--fg:#ecefed;--mute:#98a09c;--line:#303432;--acc:#5fb59d;--accfg:#0f1a17;--danger:#e07a68}}
+:root[data-theme="dark"]{--bg:#141615;--card:#1d201f;--fg:#ecefed;--mute:#98a09c;--line:#303432;--acc:#5fb59d;--accfg:#0f1a17;--danger:#e07a68}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic",system-ui,sans-serif;line-height:1.6}
+main{max-width:760px;margin:0 auto;padding:16px 16px 48px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px}
+h1{font-size:15px;font-weight:600;color:var(--mute);margin:0}
+#who{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--mute)}
+.big{text-align:center;padding:16px 0 8px}
+.big .num{font-size:clamp(64px,20vw,144px);font-weight:700;line-height:1.05;font-variant-numeric:tabular-nums;color:var(--acc)}
+.big .unit{font-size:18px;color:var(--mute);margin-left:6px}
+.sub{display:flex;justify-content:center;gap:20px;color:var(--mute);font-size:14px;flex-wrap:wrap}
+.sub b{color:var(--fg);font-variant-numeric:tabular-nums}
+textarea{width:100%;min-height:220px;margin-top:16px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);font:inherit;font-size:16px;resize:vertical}
+textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+button{font:inherit;font-size:14px;padding:9px 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+button:hover{border-color:var(--acc)}
+button.p{background:var(--acc);color:var(--accfg);border-color:var(--acc);font-weight:600}
+button.d{color:var(--danger)}
+.st{margin-left:auto;font-size:12px;color:var(--mute)}
+h2{font-size:16px;margin:32px 0 10px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+.item .pv{white-space:pre-wrap;word-break:break-word;font-size:14px;max-height:3.2em;overflow:hidden}
+.item .mt{font-size:12px;color:var(--mute);margin:6px 0 8px}
+.item button{padding:5px 12px;font-size:13px;margin-right:6px}
+.empty,.gate{color:var(--mute);text-align:center;padding:40px 16px}
+.gate{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-top:32px}
+.gate h3{color:var(--fg);margin:0 0 8px;font-size:18px}
+.gate button{margin-top:16px;padding:11px 22px;font-size:15px}
+.err{color:var(--danger);font-size:13px;margin-top:12px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>文字数カウンター</h1>
+    <div id="who" hidden><span id="uname"></span><button id="logout">ログアウト</button></div>
+  </header>
+
+  <div id="load" class="empty">読み込み中…</div>
+
+  <div id="gate" class="gate" hidden>
+    <h3>🔒 ログインが必要です</h3>
+    <div>ログインすると、入力内容があなた専用に保存されます。</div>
+    <button class="p" id="login">Google でログイン</button>
+    <div class="err" id="err" hidden></div>
+  </div>
+
+  <div id="app" hidden>
+    <div class="big"><span class="num" id="n">0</span><span class="unit">文字</span></div>
+    <div class="sub">
+      <span>空白・改行を除く <b id="ns">0</b></span>
+      <span>行数 <b id="nl">0</b></span>
+    </div>
+    <textarea id="t" placeholder="ここに文章を入力またはペースト"></textarea>
+    <div class="bar">
+      <button class="p" id="copy">📋 コピー</button>
+      <button id="save">履歴に保存</button>
+      <button id="clr">クリア</button>
+      <span class="st" id="st"></span>
+    </div>
+    <h2>保存した履歴</h2>
+    <div id="list"><div class="empty">まだ保存された内容はありません</div></div>
+  </div>
+</main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, orderBy, limit, onSnapshot }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAtqOSLNJ9OeeBMGn-ULt9AQExUEZvAPVE",
+  authDomain: "mojisuukaunnto.firebaseapp.com",
+  projectId: "mojisuukaunnto",
+  storageBucket: "mojisuukaunnto.firebasestorage.app",
+  messagingSenderId: "794831126994",
+  appId: "1:794831126994:web:f626e87d936326f239080b"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const $ = s => document.querySelector(s);
+const ta = $('#t');
+let uid = null, unsub = null, timer = null, entries = [];
+const cnt = s => Array.from(s).length;
+const entriesCol = () => collection(db, 'users', uid, 'entries');
+const draftDoc = () => doc(db, 'users', uid, 'meta', 'draft');
+
+function update() {
+  const t = ta.value;
+  $('#n').textContent = cnt(t).toLocaleString();
+  $('#ns').textContent = cnt(t.replace(/\s/g, '')).toLocaleString();
+  $('#nl').textContent = t ? t.split('\n').length : 0;
+}
+function flash(btn, msg) {
+  if (!btn.dataset.o) btn.dataset.o = btn.textContent;
+  btn.textContent = msg;
+  clearTimeout(btn._t);
+  btn._t = setTimeout(() => { btn.textContent = btn.dataset.o; }, 1400);
+}
+async function copyText(s, btn) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(s); ok = true; }
+  catch (e) {
+    const x = document.createElement('textarea');
+    x.value = s; x.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(x); x.select();
+    try { ok = document.execCommand('copy'); } catch (e2) {}
+    x.remove();
+  }
+  flash(btn, ok ? 'コピーしました ✓' : 'コピーできませんでした');
+}
+const setStatus = s => { $('#st').textContent = s; };
+function fmt(ms) {
+  const d = new Date(ms), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function renderList() {
+  const box = $('#list');
+  box.replaceChildren();
+  if (!entries.length) {
+    const e = document.createElement('div');
+    e.className = 'empty'; e.textContent = 'まだ保存された内容はありません';
+    box.appendChild(e); return;
+  }
+  for (const en of entries) {
+    const it = document.createElement('div'); it.className = 'item';
+    const pv = document.createElement('div'); pv.className = 'pv'; pv.textContent = en.text || '';
+    const mt = document.createElement('div'); mt.className = 'mt';
+    mt.textContent = `${cnt(en.text || '').toLocaleString()}文字 ・ ${fmt(en.createdAt || 0)}`;
+    const b1 = document.createElement('button'); b1.textContent = '開く';
+    b1.onclick = () => { ta.value = en.text || ''; update(); queueDraft(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    const b2 = document.createElement('button'); b2.textContent = 'コピー';
+    b2.onclick = () => copyText(en.text || '', b2);
+    const b3 = document.createElement('button'); b3.textContent = '削除'; b3.className = 'd';
+    let armed = false;
+    b3.onclick = async () => {
+      if (!armed) { armed = true; b3.textContent = '本当に削除?'; setTimeout(() => { armed = false; b3.textContent = '削除'; }, 2500); return; }
+      try { await deleteDoc(doc(db, 'users', uid, 'entries', en.id)); } catch (e) { setStatus('削除に失敗しました'); }
+    };
+    it.append(pv, mt, b1, b2, b3);
+    box.appendChild(it);
+  }
+}
+
+function queueDraft() {
+  clearTimeout(timer);
+  setStatus('入力中…');
+  timer = setTimeout(async () => {
+    try { await setDoc(draftDoc(), { text: ta.value, updatedAt: Date.now() }); setStatus('自動保存済み ✓'); }
+    catch (e) { setStatus('自動保存に失敗しました'); }
+  }, 1200);
+}
+
+async function enter(user) {
+  uid = user.uid;
+  $('#load').hidden = true; $('#gate').hidden = true;
+  $('#app').hidden = false; $('#who').hidden = false;
+  $('#uname').textContent = user.displayName || user.email || '';
+  try {
+    const d = await getDoc(draftDoc());
+    if (d.exists()) { ta.value = d.data().text || ''; update(); }
+  } catch (e) { setStatus('下書きを読み込めませんでした'); }
+  unsub = onSnapshot(query(entriesCol(), orderBy('createdAt', 'desc'), limit(50)), snap => {
+    entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderList();
+  }, () => setStatus('履歴を読み込めませんでした'));
+}
+
+function leave() {
+  if (unsub) { unsub(); unsub = null; }
+  clearTimeout(timer);
+  uid = null; entries = []; ta.value = ''; update(); renderList();
+  $('#app').hidden = true; $('#who').hidden = true;
+  $('#load').hidden = true; $('#gate').hidden = false;
+}
+
+onAuthStateChanged(auth, user => { user ? enter(user) : leave(); });
+
+$('#login').onclick = async () => {
+  $('#err').hidden = true;
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch (e) {
+    $('#err').hidden = false;
+    $('#err').textContent = e.code === 'auth/unauthorized-domain'
+      ? 'このドメインが未承認です。Firebase の Authentication → 設定 → 承認済みドメインに追加してください。'
+      : 'ログインできませんでした(' + (e.code || 'error') + ')';
+  }
+};
+$('#logout').onclick = () => signOut(auth);
+
+ta.addEventListener('input', () => { update(); if (uid) queueDraft(); });
+$('#copy').onclick = e => copyText(ta.value, e.currentTarget);
+$('#clr').onclick = () => { ta.value = ''; update(); if (uid) queueDraft(); ta.focus(); };
+$('#save').onclick = async e => {
+  const btn = e.currentTarget, text = ta.value;
+  if (!text.trim()) { flash(btn, '空です'); return; }
+  try { await addDoc(entriesCol(), { text, createdAt: Date.now() }); flash(btn, '保存しました ✓'); }
+  catch (err) { flash(btn, '保存失敗'); }
+};
+</script>
+</body>
+</html>
