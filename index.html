@@ -54,6 +54,7 @@ h2{font-size:16px;margin:32px 0 10px}
     <h3>🔒 ログインが必要です</h3>
     <div>ログインすると、入力内容があなた専用に保存されます。</div>
     <button class="p" id="login">Google でログイン</button>
+    <div class="err" id="inapp" hidden>LINE などのアプリ内ブラウザでは、ログインが白い画面で止まることがあります。右上のメニューから「Safari で開く」または「Chrome で開く」を選んでください。</div>
     <div class="err" id="err" hidden></div>
   </div>
 
@@ -77,7 +78,7 @@ h2{font-size:16px;margin:32px 0 10px}
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, orderBy, limit, onSnapshot }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
@@ -194,14 +195,32 @@ function leave() {
 
 onAuthStateChanged(auth, user => { user ? enter(user) : leave(); });
 
+function showErr(e) {
+  const box = $('#err');
+  box.hidden = false;
+  box.textContent = e.code === 'auth/unauthorized-domain'
+    ? 'このドメインが未承認です。Firebase の Authentication → 設定 → 承認済みドメインに追加してください。'
+    : e.code === 'auth/popup-closed-by-user'
+    ? 'ログイン画面が閉じられました。もう一度お試しください。'
+    : 'ログインできませんでした(' + (e.code || 'error') + ')';
+}
+
+if (/Line\/|FBAN|FBAV|Instagram|Twitter|MicroMessenger|; wv\)/i.test(navigator.userAgent)) {
+  $('#inapp').hidden = false;
+}
+
+getRedirectResult(auth).catch(showErr);
+
 $('#login').onclick = async () => {
   $('#err').hidden = true;
-  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  const provider = new GoogleAuthProvider();
+  try { await signInWithPopup(auth, provider); }
   catch (e) {
-    $('#err').hidden = false;
-    $('#err').textContent = e.code === 'auth/unauthorized-domain'
-      ? 'このドメインが未承認です。Firebase の Authentication → 設定 → 承認済みドメインに追加してください。'
-      : 'ログインできませんでした(' + (e.code || 'error') + ')';
+    const fallback = ['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment', 'auth/cancelled-popup-request'];
+    if (fallback.includes(e.code)) {
+      try { await signInWithRedirect(auth, provider); return; } catch (e2) { e = e2; }
+    }
+    showErr(e);
   }
 };
 $('#logout').onclick = () => signOut(auth);
